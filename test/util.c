@@ -251,6 +251,49 @@ START_TEST(test_rand_between)
 }
 END_TEST
 
+START_TEST(test_ratelimit_allow)
+{
+	struct ratelimit rl = {.tokens = 3};
+	struct timespec now = {.tv_sec = 100, .tv_nsec = 0};
+
+	/* burst of 3, then empty */
+	rl.last = now;
+	ck_assert_int_eq(1, ratelimit_allow(&rl, &now, 2, 3));
+	ck_assert_int_eq(1, ratelimit_allow(&rl, &now, 2, 3));
+	ck_assert_int_eq(1, ratelimit_allow(&rl, &now, 2, 3));
+	ck_assert_int_eq(0, ratelimit_allow(&rl, &now, 2, 3));
+
+	/* 0.5 seconds at 2 per second refills exactly one token */
+	now.tv_nsec = 500000000;
+	ck_assert_int_eq(1, ratelimit_allow(&rl, &now, 2, 3));
+	ck_assert_int_eq(0, ratelimit_allow(&rl, &now, 2, 3));
+
+	/* sub-millisecond calls still accumulate refill time */
+	int allowed = 0;
+	for (int i = 0; i < 3000; ++i) {
+		now.tv_nsec += 250000; /* 0.25ms each, 0.75s total */
+		if (now.tv_nsec >= 1000000000) {
+			now.tv_sec++;
+			now.tv_nsec -= 1000000000;
+		}
+		allowed += ratelimit_allow(&rl, &now, 2, 3);
+	}
+	ck_assert_int_eq(1, allowed);
+	ck_assert_double_eq_tol(0.5, rl.tokens, 0.01);
+
+	/* a long idle period refills to the burst size, not beyond */
+	now.tv_sec += 3600;
+	ck_assert_int_eq(1, ratelimit_allow(&rl, &now, 2, 3));
+	ck_assert_int_eq(1, ratelimit_allow(&rl, &now, 2, 3));
+	ck_assert_int_eq(1, ratelimit_allow(&rl, &now, 2, 3));
+	ck_assert_int_eq(0, ratelimit_allow(&rl, &now, 2, 3));
+
+	/* time going backwards does not refill */
+	now.tv_sec -= 10;
+	ck_assert_int_eq(0, ratelimit_allow(&rl, &now, 2, 3));
+}
+END_TEST
+
 START_TEST(test_cfg_removal_with_sighup)
 {
   struct Interface *tmpIface = NULL;
@@ -294,6 +337,7 @@ Suite *util_suite(void)
 
 	TCase *tc_misc = tcase_create("misc");
 	tcase_add_test(tc_misc, test_rand_between);
+	tcase_add_test(tc_misc, test_ratelimit_allow);
 	tcase_add_test(tc_misc, test_cfg_removal_with_sighup);
 
 	Suite *s = suite_create("util");

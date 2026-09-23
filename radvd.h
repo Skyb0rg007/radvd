@@ -49,6 +49,12 @@ struct safe_buffer_list {
 	struct safe_buffer_list *next;
 };
 
+/* Token bucket state for ratelimit_allow() */
+struct ratelimit {
+	double tokens;
+	struct timespec last;
+};
+
 struct Interface {
 	struct Interface *next;
 
@@ -99,6 +105,8 @@ struct Interface {
 		struct timespec next_multicast;
 		struct timespec last_ra_time;
 	} times;
+
+	struct ratelimit unicast_ra_ratelimit; /* unicast replies to RSs */
 
 	struct AdvPrefix *AdvPrefixList;
 	struct AdvRoute *AdvRouteList;
@@ -327,6 +335,7 @@ int expired(struct Interface const *iface);
 int64_t timespecdiff(struct timespec const *a, struct timespec const *b);
 struct timespec next_timespec(double next);
 uint64_t next_time_msec(struct Interface const *iface);
+int ratelimit_allow(struct ratelimit *rl, struct timespec const *now, double rate, double burst);
 
 /* device.c */
 int check_device(int sock, struct Interface *);

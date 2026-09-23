@@ -118,6 +118,10 @@
 #define MIN_DELAY_BETWEEN_RAS_MIPv6 (30.0 / 1000.0)
 #define MAX_RA_DELAY_SECONDS (0.5)
 
+/* radvd-specific: token bucket limiting unicast RAs sent in reply to RSs */
+#define MAX_UNICAST_RA_BURST 10.0
+#define MAX_UNICAST_RA_RATE 10.0 /* per second */
+
 /* Host constants: */
 
 #define MAX_RTR_SOLICITATION_DELAY 1

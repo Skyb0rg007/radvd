@@ -52,6 +52,8 @@ void iface_init_defaults(struct Interface *iface)
 
 	iface->AdvLinkMTU = DFLT_AdvLinkMTU;
 	iface->AdvRAMTU = DFLT_AdvRAMTU;
+
+	iface->unicast_ra_ratelimit.tokens = MAX_UNICAST_RA_BURST;
 }
 
 void touch_iface(struct Interface *iface)

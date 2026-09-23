@@ -186,8 +186,15 @@ static void process_rs(int sock, struct Interface *iface, unsigned char *msg, in
 
 	double const delay = (MAX_RA_DELAY_SECONDS * rand() / (RAND_MAX + 1.0));
 
-	if (iface->UnicastOnly || rfc7772_unicast_response) {
+	/* Unicast replies are rate limited so an RS flood can't be reflected
+	 * into an unbounded stream of RAs. Once the limit is hit, fall back to
+	 * the (already rate limited) multicast reply, or drop the RS when
+	 * multicast isn't available. */
+	if ((iface->UnicastOnly || rfc7772_unicast_response) &&
+	    ratelimit_allow(&iface->unicast_ra_ratelimit, &ts, MAX_UNICAST_RA_RATE, MAX_UNICAST_RA_BURST)) {
 		send_ra_forall(sock, iface, &addr->sin6_addr);
+	} else if (iface->UnicastOnly) {
+		dlog(LOG_DEBUG, 3, "%s: unicast RA rate limit reached, ignoring RS", iface->props.name);
 	} else if (timespecdiff(&ts, &iface->times.last_multicast) / 1000.0 < iface->MinDelayBetweenRAs) {
 		/* last RA was sent only a few moments ago, don't send another immediately. */
 		double next = iface->MinDelayBetweenRAs - (ts.tv_sec + ts.tv_nsec / 1000000000.0) +

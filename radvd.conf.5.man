@@ -221,6 +221,10 @@ will cause solicited advertisements to be unicast to the
 soliciting node.  This option is necessary for non-broadcast,
 multiple-access links, such as ISATAP.
 
+Solicited unicast advertisements are rate limited to a burst of 10,
+refilling at 10 per second per interface; solicitations beyond that
+limit are ignored.
+
 Default: off
 
 .TP
@@ -245,6 +249,11 @@ depletion, when solicited Router Advertisement messages are multicast.
 
 This corresponds to the Cisco IOS option
 .B ipv6 nd ra solicited unicast
+
+Unicast replies are rate limited to a burst of 10, refilling at 10 per
+second per interface. Solicitations beyond that limit are answered with a
+multicast advertisement instead, subject to the usual minimum delay
+between multicast advertisements.
 
 Default: on
 

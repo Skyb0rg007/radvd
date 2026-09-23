@@ -34,6 +34,26 @@ int64_t timespecdiff(struct timespec const *a, struct timespec const *b)
 	return msec;
 }
 
+/*
+ * Token bucket rate limiter. Allows bursts of up to `burst` events, refilled
+ * at `rate` events per second. Returns 1 and consumes a token if the event is
+ * allowed, 0 otherwise.
+ */
+int ratelimit_allow(struct ratelimit *rl, struct timespec const *now, double rate, double burst)
+{
+	double elapsed = (now->tv_sec - rl->last.tv_sec) + (now->tv_nsec - rl->last.tv_nsec) / 1000000000.0;
+	rl->last = *now;
+
+	if (elapsed > 0)
+		rl->tokens = min(burst, rl->tokens + elapsed * rate);
+
+	if (rl->tokens < 1.0)
+		return 0;
+
+	rl->tokens -= 1.0;
+	return 1;
+}
+
 /* Returns when the next time should expire in milliseconds. */
 uint64_t next_time_msec(struct Interface const *iface)
 {
