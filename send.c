@@ -583,6 +583,12 @@ static size_t serialize_domain_names(struct safe_buffer *safe_buffer, struct Adv
 
 	for (int i = 0; i < dnssl->AdvDNSSLNumber; i++) {
 		len += serialize_domain_name(safe_buffer, dnssl->AdvDNSSLSuffixes[i]);
+		/* Once the names can no longer fit in a single option (length field is
+		 * 255 * 8 octets) stop early; the caller skips the option. Without this
+		 * a large enough DNSSL block would grow the scratch buffer past the
+		 * safe_buffer hard limit and take the daemon down. */
+		if (len > 255 * 8)
+			break;
 	}
 	return len;
 }
@@ -1157,7 +1163,7 @@ static int send_ra(int sock, struct Interface *iface, struct in6_addr const *des
 		safe_buffer_append(sb, ra_hdr->buffer, ra_hdr->used);
 		// Copy in as many RA options as we can fit.
 		while (NULL != cur) {
-			if (sb->used == 0) {
+			if (cur->sb->used == 0) {
 				dlog(LOG_DEBUG, 5, "send_ra: Saw empty buffer!");
 				cur = cur->next;
 				continue;
