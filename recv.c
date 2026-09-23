@@ -42,7 +42,18 @@ int recv_rs_ra(int sock, unsigned char *msg, struct sockaddr_in6 *addr, struct i
 		return len;
 	}
 
+	if (mhdr.msg_flags & MSG_CTRUNC) {
+		flog(LOG_ERR, "recvmsg: control data truncated");
+		return -1;
+	}
+
+#ifdef IPV6_HOPLIMIT
+	/* Fail closed: if the kernel does not tell us the hop limit, the
+	 * packet must not pass the hop limit == 255 check in process(). */
+	*hoplimit = -1;
+#else
 	*hoplimit = 255;
+#endif
 
 	for (struct cmsghdr *cmsg = CMSG_FIRSTHDR(&mhdr); cmsg != NULL; cmsg = CMSG_NXTHDR(&mhdr, cmsg)) {
 		if (cmsg->cmsg_level != IPPROTO_IPV6)
