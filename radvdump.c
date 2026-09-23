@@ -561,6 +561,11 @@ static void print_ff(unsigned char *msg, int len, struct sockaddr_in6 *addr, int
 					break;
 				}
 
+				if (offset + label_len > optlen - (int)sizeof(struct nd_opt_dnssl_info_local)) {
+					flog(LOG_ERR, "DNSSL label overruns option from %s", addr_str);
+					break;
+				}
+
 				if (suffix[0] != '\0')
 					strcat(suffix, ".");
 				strncat(suffix, (char *)&dnssl_info->nd_opt_dnssli_suffixes[offset], label_len);
@@ -596,7 +601,9 @@ static void print_ff(unsigned char *msg, int len, struct sockaddr_in6 *addr, int
 
 			uint32_t lifetime = get_be32(opt_str + 4);
 
-			printf("\n\tDNR %s\n\t{\n", adn);
+			printf("\n\tDNR ");
+			print_sanitized(adn, strlen(adn));
+			printf("\n\t{\n");
 			printf("\t\tAdvDNRPriority %hu;\n", get_be16(opt_str + 2));
 			/* as AdvDNRLifetime may depend on MaxRtrAdvInterval, it could change */
 			if (lifetime == 0xffffffff)
@@ -640,8 +647,11 @@ static void print_ff(unsigned char *msg, int len, struct sockaddr_in6 *addr, int
 					switch (key) {
 					case DNR_SVCPARAM_KEY_ALPN: { /* RFC 9460 §7.1 */
 						char alpn[256];
-						if (join_prefixed(val, vlen, ',', alpn, sizeof(alpn)) && alpn[0])
-							printf("\t\tAdvDNRSvcAlpn \"%s\";\n", alpn);
+						if (join_prefixed(val, vlen, ',', alpn, sizeof(alpn)) && alpn[0]) {
+							printf("\t\tAdvDNRSvcAlpn \"");
+							print_sanitized(alpn, strlen(alpn));
+							printf("\";\n");
+						}
 						break;
 					}
 					case DNR_SVCPARAM_KEY_PORT: /* RFC 9460 §7.2 */
@@ -649,7 +659,9 @@ static void print_ff(unsigned char *msg, int len, struct sockaddr_in6 *addr, int
 							printf("\t\tAdvDNRSvcPort %hu;\n", get_be16(val));
 						break;
 					case DNR_SVCPARAM_KEY_DOHPATH: /* RFC 9461 §5.1 */
-						printf("\t\tAdvDNRSvcDohpath \"%.*s\";\n", vlen, (const char *)val);
+						printf("\t\tAdvDNRSvcDohpath \"");
+						print_sanitized((const char *)val, vlen);
+						printf("\";\n");
 						break;
 					default:
 						printf("\t\t# Unsupported SvcParamKey %d (%d bytes)\n", key, vlen);
