@@ -75,6 +75,14 @@ __attribute__((format(printf, 2, 0))) static int vlog(int prio, char const *form
 
 	vsnprintf(buff, sizeof(buff), format, ap);
 
+	/* Messages can carry data taken from the network (e.g. DNSSL labels
+	 * from a received RA). Strip control characters so they can't forge
+	 * log lines or emit terminal escape sequences. */
+	for (char *p = buff; *p; p++) {
+		if ((unsigned char)*p < 0x20 || *p == 0x7f)
+			*p = '?';
+	}
+
 	switch (log_method) {
 	case L_NONE:
 	case L_UNSPEC:
