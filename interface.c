@@ -53,6 +53,9 @@ void iface_init_defaults(struct Interface *iface)
 	iface->AdvLinkMTU = DFLT_AdvLinkMTU;
 	iface->AdvRAMTU = DFLT_AdvRAMTU;
 
+	/* unknown until update_device_info() has asked the kernel */
+	iface->sllao.if_maxmtu = -1;
+
 	iface->unicast_ra_ratelimit.tokens = MAX_UNICAST_RA_BURST;
 }
 
@@ -235,8 +238,12 @@ int check_iface(struct Interface *iface)
 
 	if ((iface->AdvLinkMTU != 0) && ((iface->AdvLinkMTU < MIN_AdvLinkMTU) ||
 					 (iface->sllao.if_maxmtu != -1 && (iface->AdvLinkMTU > iface->sllao.if_maxmtu)))) {
-		flog(LOG_ERR, "AdvLinkMTU for %s (%u) must be zero or between %u and %u", iface->props.name, iface->AdvLinkMTU,
-		     MIN_AdvLinkMTU, iface->sllao.if_maxmtu);
+		if (iface->sllao.if_maxmtu != -1)
+			flog(LOG_ERR, "AdvLinkMTU for %s (%u) must be zero or between %u and %d", iface->props.name,
+			     iface->AdvLinkMTU, MIN_AdvLinkMTU, iface->sllao.if_maxmtu);
+		else
+			flog(LOG_ERR, "AdvLinkMTU for %s (%u) must be zero or at least %u", iface->props.name,
+			     iface->AdvLinkMTU, MIN_AdvLinkMTU);
 		res = -1;
 	}
 

@@ -332,8 +332,16 @@ int main(int argc, char *argv[])
 	}
 
 	if (configtest) {
+		/* Also run the per-interface validation that setup_iface() would do,
+		 * so that interval/lifetime/MTU errors are reported here instead of
+		 * silently disabling the interface once the daemon runs. */
+		int rc = 0;
+		for (struct Interface *iface = ifaces; iface; iface = iface->next) {
+			if (check_iface(iface) < 0)
+				rc = 1;
+		}
 		free_ifaces(ifaces);
-		exit(0);
+		exit(rc);
 	}
 
 	/* get a raw socket for sending and receiving ICMPv6 messages */
