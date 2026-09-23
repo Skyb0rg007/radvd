@@ -386,6 +386,10 @@ void reschedule_iface(struct Interface *iface, double next)
 #ifdef HAVE_NETLINK
 	if (!iface->state_info.changed && !iface->state_info.ready) {
 		next = 10 * iface->MaxRtrAdvInterval;
+		/* MaxRtrAdvInterval may be invalid (that can be why the interface is
+		 * not ready); never spin on a zero timeout. */
+		if (next < IFACE_SETUP_DELAY)
+			next = IFACE_SETUP_DELAY;
 	} else if (next == 0) {
 		next = IFACE_SETUP_DELAY;
 	} else
