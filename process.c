@@ -96,14 +96,16 @@ void process(int sock, struct Interface *interfaces, unsigned char *msg, int len
 		return;
 	}
 
-	if (!iface->state_info.ready && (0 != setup_iface(sock, iface))) {
-		flog(LOG_WARNING, "%s received RS or RA on %s but %s is not ready and setup_iface failed", if_name,
-		     iface->props.name, iface->props.name);
+	/* Check the hop limit before doing any work on the packet's behalf;
+	 * setup_iface() below is comparatively expensive. */
+	if (hoplimit != 255) {
+		flog(LOG_WARNING, "%s received RS or RA with invalid hoplimit %d from %s", if_name, hoplimit, addr_str);
 		return;
 	}
 
-	if (hoplimit != 255) {
-		flog(LOG_WARNING, "%s received RS or RA with invalid hoplimit %d from %s", if_name, hoplimit, addr_str);
+	if (!iface->state_info.ready && (0 != setup_iface(sock, iface))) {
+		flog(LOG_WARNING, "%s received RS or RA on %s but %s is not ready and setup_iface failed", if_name,
+		     iface->props.name, iface->props.name);
 		return;
 	}
 
