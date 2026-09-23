@@ -124,7 +124,13 @@ int get_iface_addrs(char const *name, struct in6_addr *if_addr, struct in6_addr 
 			if (strcmp(ifa->ifa_name, name) != 0)
 				continue;
 
-			*if_addrs = realloc(*if_addrs, (i + 1) * sizeof(struct in6_addr));
+			struct in6_addr *grown = realloc(*if_addrs, (i + 1) * sizeof(struct in6_addr));
+			if (!grown) {
+				flog(LOG_ERR, "realloc failed on %s: %s", name, strerror(errno));
+				freeifaddrs(addresses);
+				return -1;
+			}
+			*if_addrs = grown;
 			(*if_addrs)[i++] = a6->sin6_addr;
 
 			/* Skip if it is not a linklocal address or link locak address already found*/
@@ -143,7 +149,12 @@ int get_iface_addrs(char const *name, struct in6_addr *if_addr, struct in6_addr 
 		freeifaddrs(addresses);
 
 	/* last item in the list is all zero (unspecified) address */
-	*if_addrs = realloc(*if_addrs, (i + 1) * sizeof(struct in6_addr));
+	struct in6_addr *grown = realloc(*if_addrs, (i + 1) * sizeof(struct in6_addr));
+	if (!grown) {
+		flog(LOG_ERR, "realloc failed on %s: %s", name, strerror(errno));
+		return -1;
+	}
+	*if_addrs = grown;
 	memset(&(*if_addrs)[i], 0, sizeof(struct in6_addr));
 
 	/* Sort the addresses so the output is predictable. */
@@ -193,6 +204,11 @@ int setup_iface_addrs(struct Interface *iface)
 			iface->props.if_addr_rasrc = &iface->props.if_addr;
 		}
 	} else {
+		/* get_iface_addrs() may have reallocated if_addrs to a smaller size
+		 * and if_addr_rasrc may have pointed into the old block, so neither
+		 * the old count nor the old pointer can be trusted any more. */
+		iface->props.addrs_count = 0;
+		iface->props.if_addr_rasrc = NULL;
 		if (iface->IgnoreIfMissing)
 			dlog(LOG_DEBUG, 4, "no linklocal address configured on %s", iface->props.name);
 		else
