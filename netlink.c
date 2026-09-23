@@ -29,6 +29,8 @@
 #include <string.h>
 #include <sys/socket.h>
 
+static int netlink_request_socket(void);
+
 #ifndef SOL_NETLINK
 #define SOL_NETLINK 270
 #endif
@@ -79,7 +81,9 @@ int netlink_get_address_lifetimes(struct AdvPrefix const *prefix, unsigned int *
 	req.n.nlmsg_type = RTM_GETADDR;
 	req.r.ifa_family = AF_INET6;
 
-	sock = netlink_socket();
+	/* A request socket that is not subscribed to any multicast group, so
+	 * only the kernel's reply to our dump can arrive on it. */
+	sock = netlink_request_socket();
 	if (sock == -1)
 		return ret;
 
@@ -91,57 +95,68 @@ int netlink_get_address_lifetimes(struct AdvPrefix const *prefix, unsigned int *
 		return ret;
 	}
 
-	len = recv(sock, buf, sizeof(buf), 0);
-	if (len == -1) {
-		flog(LOG_ERR, "netlink: recv for address lifetimes failed: %s", strerror(errno));
-		close (sock);
-		return ret;
-	}
-
-	retmsg = (struct nlmsghdr *)buf;
-
-	while NLMSG_OK(retmsg, len) {
-		retaddr = (struct ifaddrmsg *)NLMSG_DATA(retmsg);
-		tb = (struct rtattr *)IFA_RTA(retaddr);
-
-		attrlen = IFA_PAYLOAD(retmsg);
-
-		char addr[INET6_ADDRSTRLEN];
-		int found = 0;
-
-		while RTA_OK(tb, attrlen) {
-			if (tb->rta_type == IFA_ADDRESS) {
-				/* Test if the address matches the prefix we are searching for */
-				struct in6_addr *tmp = RTA_DATA(tb);
-				if (prefix_match(prefix, tmp)) {
-					inet_ntop(AF_INET6, RTA_DATA(tb), addr, sizeof(addr));
-					found = 1;
-				} else {
-					found = 0;
-				}
-			}
-
-			/**
-			 *  If we have matched an address, retrieve and update the valid and preferred lifetimes for that prefix.
-			 */
-			if(found && tb->rta_type == IFA_CACHEINFO) {
-				struct ifa_cacheinfo *cache_info = (struct ifa_cacheinfo *)RTA_DATA(tb);
-				if (cache_info->ifa_valid > valid) {
-					valid = cache_info->ifa_valid;
-				}
-
-				if (cache_info->ifa_prefered > preferred) {
-					preferred = cache_info->ifa_prefered;
-				}
-				/* Reset found flag, in case more than one address exists on the same prefix */
-				found = 0;
-				/* At lease 1 lifetime have been found, return value is true */
-				ret = 1;
-			}
-
-			tb = RTA_NEXT(tb, attrlen);
+	/* A dump can span several datagrams; it is terminated by NLMSG_DONE. */
+	int done = 0;
+	while (!done) {
+		len = recv(sock, buf, sizeof(buf), 0);
+		if (len <= 0) {
+			flog(LOG_ERR, "netlink: recv for address lifetimes failed: %s", strerror(errno));
+			close (sock);
+			return ret;
 		}
-		retmsg = NLMSG_NEXT(retmsg, len);
+
+		for (retmsg = (struct nlmsghdr *)buf; NLMSG_OK(retmsg, len); retmsg = NLMSG_NEXT(retmsg, len)) {
+			if (retmsg->nlmsg_type == NLMSG_DONE) {
+				done = 1;
+				break;
+			}
+			if (retmsg->nlmsg_type == NLMSG_ERROR) {
+				flog(LOG_ERR, "netlink: error reply to address dump");
+				done = 1;
+				break;
+			}
+			if (retmsg->nlmsg_type != RTM_NEWADDR ||
+			    retmsg->nlmsg_len < NLMSG_LENGTH(sizeof(struct ifaddrmsg)))
+				continue;
+			if (!(retmsg->nlmsg_flags & NLM_F_MULTI))
+				done = 1;
+
+			retaddr = (struct ifaddrmsg *)NLMSG_DATA(retmsg);
+			if (retaddr->ifa_family != AF_INET6)
+				continue;
+
+			tb = (struct rtattr *)IFA_RTA(retaddr);
+			attrlen = IFA_PAYLOAD(retmsg);
+
+			int found = 0;
+
+			while RTA_OK(tb, attrlen) {
+				if (tb->rta_type == IFA_ADDRESS && RTA_PAYLOAD(tb) >= sizeof(struct in6_addr)) {
+					/* Test if the address matches the prefix we are searching for */
+					found = prefix_match(prefix, (struct in6_addr *)RTA_DATA(tb));
+				}
+
+				/**
+				 *  If we have matched an address, retrieve and update the valid and preferred lifetimes for that prefix.
+				 */
+				if (found && tb->rta_type == IFA_CACHEINFO && RTA_PAYLOAD(tb) >= sizeof(struct ifa_cacheinfo)) {
+					struct ifa_cacheinfo *cache_info = (struct ifa_cacheinfo *)RTA_DATA(tb);
+					if (cache_info->ifa_valid > valid) {
+						valid = cache_info->ifa_valid;
+					}
+
+					if (cache_info->ifa_prefered > preferred) {
+						preferred = cache_info->ifa_prefered;
+					}
+					/* Reset found flag, in case more than one address exists on the same prefix */
+					found = 0;
+					/* At lease 1 lifetime have been found, return value is true */
+					ret = 1;
+				}
+
+				tb = RTA_NEXT(tb, attrlen);
+			}
+		}
 	}
 
 	*valid_lft = valid;
@@ -169,7 +184,7 @@ int netlink_get_device_addr_len(struct Interface *iface)
 	req.n.nlmsg_type = RTM_GETLINK;
 	req.i.ifi_index = iface->props.if_index;
 
-	sock = netlink_socket();
+	sock = netlink_request_socket();
 	if (sock == -1)
 		return -1;
 
@@ -187,11 +202,18 @@ int netlink_get_device_addr_len(struct Interface *iface)
 		goto out;
 	}
 
-	if (len < NLMSG_LENGTH(sizeof(struct ifinfomsg)))
+	/* Only accept a well-formed RTM_NEWLINK reply from the kernel for the
+	 * interface we asked about. */
+	struct nlmsghdr *nh = (struct nlmsghdr *)answer;
+	if (msg.msg_namelen != sizeof(sa) || sa.nl_pid != 0 || !NLMSG_OK(nh, len) ||
+	    nh->nlmsg_type != RTM_NEWLINK || nh->nlmsg_len < NLMSG_LENGTH(sizeof(struct ifinfomsg)) ||
+	    ((struct ifinfomsg *)NLMSG_DATA(nh))->ifi_index != iface->props.if_index) {
+		flog(LOG_ERR, "netlink: unexpected reply to link request for %s", iface->props.name);
 		goto out;
-	len -= NLMSG_LENGTH(sizeof(struct ifinfomsg));
+	}
 
-	tb = (struct rtattr *)(answer + NLMSG_LENGTH(sizeof(struct ifinfomsg)));
+	len = IFLA_PAYLOAD(nh);
+	tb = IFLA_RTA(NLMSG_DATA(nh));
 	while (RTA_OK(tb, len)) {
 		type = tb->rta_type & ~NLA_F_NESTED;
 		if (type == IFLA_ADDRESS) {
@@ -314,7 +336,7 @@ void process_netlink_msg(int netlink_sock, struct Interface *ifaces, int icmp_so
 	}
 }
 
-int netlink_socket(void)
+static int netlink_open(uint32_t groups)
 {
 	int sock = socket(PF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
 	if (sock == -1) {
@@ -329,7 +351,7 @@ int netlink_socket(void)
 	struct sockaddr_nl snl;
 	memset(&snl, 0, sizeof(snl));
 	snl.nl_family = AF_NETLINK;
-	snl.nl_groups = RTMGRP_LINK | RTMGRP_IPV6_IFADDR;
+	snl.nl_groups = groups;
 
 	int rc = bind(sock, (struct sockaddr *)&snl, sizeof(snl));
 	if (rc == -1) {
@@ -339,4 +361,17 @@ int netlink_socket(void)
 	}
 
 	return sock;
+}
+
+/* Event socket: receives link and IPv6 address notifications. */
+int netlink_socket(void)
+{
+	return netlink_open(RTMGRP_LINK | RTMGRP_IPV6_IFADDR);
+}
+
+/* Request/reply socket: not subscribed to any group, so a multicast
+ * notification can never be mistaken for the reply we are waiting for. */
+static int netlink_request_socket(void)
+{
+	return netlink_open(0);
 }
