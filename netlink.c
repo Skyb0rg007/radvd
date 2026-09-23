@@ -216,6 +216,13 @@ void process_netlink_msg(int netlink_sock, struct Interface *ifaces, int icmp_so
 	int len = recvmsg(netlink_sock, &msg, 0);
 	if (len == -1) {
 		flog(LOG_ERR, "netlink: recvmsg failed: %s", strerror(errno));
+		return;
+	}
+
+	/* Only trust messages from the kernel, not other netlink sockets */
+	if (msg.msg_namelen != sizeof(sa) || sa.nl_pid != 0) {
+		flog(LOG_WARNING, "netlink: ignoring message from non-kernel sender (pid %u)", sa.nl_pid);
+		return;
 	}
 
 	for (struct nlmsghdr *nh = (struct nlmsghdr *)buf; NLMSG_OK(nh, len); nh = NLMSG_NEXT(nh, len)) {
