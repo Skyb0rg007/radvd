@@ -479,6 +479,38 @@ static void free_iface_list(struct Interface *iface)
 			clients = next_client;
 		}
 
+		struct AdvRASrcAddress *rasrc = iface->AdvRASrcAddressList;
+		while (rasrc) {
+			struct AdvRASrcAddress *next_rasrc = rasrc->next;
+
+			free(rasrc);
+			rasrc = next_rasrc;
+		}
+
+		struct NAT64Prefix *nat64prefix = iface->NAT64PrefixList;
+		while (nat64prefix) {
+			struct NAT64Prefix *next_nat64prefix = nat64prefix->next;
+
+			free(nat64prefix);
+			nat64prefix = next_nat64prefix;
+		}
+
+		struct AdvLowpanCo *lowpanco = iface->AdvLowpanCoList;
+		while (lowpanco) {
+			struct AdvLowpanCo *next_lowpanco = lowpanco->next;
+
+			free(lowpanco);
+			lowpanco = next_lowpanco;
+		}
+
+		struct AdvAbro *abro = iface->AdvAbroList;
+		while (abro) {
+			struct AdvAbro *next_abro = abro->next;
+
+			free(abro);
+			abro = next_abro;
+		}
+
 		free(iface->props.if_addrs);
 
 		free(iface->AdvCaptivePortalAPI);
