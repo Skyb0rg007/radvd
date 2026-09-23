@@ -603,6 +603,12 @@ ignoreprefixlist	: T_AUTOIGNOREPREFIX '{' ignoreprefixes '}' ';'
 
 ignoreprefixes	: IPV6ADDR '/' NUMBER ';'
 		{
+			if ($3 > MAX_PrefixLen)
+			{
+				flog(LOG_ERR, "invalid prefix length in %s, line %d", filename, num_lines);
+				ABORT;
+			}
+
 			struct AutogenIgnorePrefix *new = calloc(1, sizeof(struct AutogenIgnorePrefix));
 			if (new == NULL) {
 				flog(LOG_CRIT, "calloc failed: %s", strerror(errno));
@@ -625,6 +631,12 @@ ignoreprefixes	: IPV6ADDR '/' NUMBER ';'
 		}
 		| ignoreprefixes IPV6ADDR '/' NUMBER ';'
 		{
+			if ($4 > MAX_PrefixLen)
+			{
+				flog(LOG_ERR, "invalid prefix length in %s, line %d", filename, num_lines);
+				ABORT;
+			}
+
 			struct AutogenIgnorePrefix *new = calloc(1, sizeof(struct AutogenIgnorePrefix));
 			if (new == NULL) {
 				flog(LOG_CRIT, "calloc failed: %s", strerror(errno));
