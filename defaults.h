@@ -24,6 +24,7 @@
 #define RFC2460_MIN_MTU 1280 /* RFC2460 5. Packet Size Issues: lowest valid MTU supported by IPv6 */
 
 #define MAX2(X, Y) (((X) >= (Y)) ? (X) : (Y))
+#define MIN2(X, Y) (((X) <= (Y)) ? (X) : (Y))
 
 /* Router Configuration Variables: */
 
@@ -41,7 +42,8 @@
 #define DFLT_AdvCurHopLimit                                                                                                      \
 	64 /* as per RFC 1700 or the                                                                                             \
 	      next incarnation of it :) */
-#define DFLT_AdvDefaultLifetime(iface) MAX2(1, (int)(3.0 * (iface)->MaxRtrAdvInterval))
+/* 3 * MaxRtrAdvInterval, but never more than the 16-bit router lifetime field can hold */
+#define DFLT_AdvDefaultLifetime(iface) MIN2(MAX_AdvDefaultLifetime, MAX2(1, (int)(3.0 * (iface)->MaxRtrAdvInterval)))
 #define DFLT_MinDelayBetweenRAs MIN_DELAY_BETWEEN_RAS
 #define DFLT_AdvDefaultPreference 0
 #define DFLT_AdvRAMTU RFC2460_MIN_MTU

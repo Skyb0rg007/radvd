@@ -17,6 +17,7 @@
 #include "includes.h"
 #include "radvd.h"
 #include "defaults.h"
+#include <ctype.h>
 
 #define YYERROR_VERBOSE 1
 
@@ -214,6 +215,12 @@ ifacedef	: ifacehead '{' ifaceparams  '}' ';'
 
 ifacehead	: T_INTERFACE name
 		{
+			if (strlen($2) >= IFNAMSIZ) {
+				flog(LOG_ERR, "interface name %s is too long (max %d) in %s, line %d",
+					$2, IFNAMSIZ - 1, filename, num_lines);
+				ABORT;
+			}
+
 			iface = IfaceList;
 
 			while (iface)
@@ -330,10 +337,20 @@ ifaceval	: T_MinRtrAdvInterval NUMBER ';'
 		}
 		| T_AdvDefaultPreference SIGNEDNUMBER ';'
 		{
+			if ($2 < -1 || $2 > 1) {
+				flog(LOG_ERR, "AdvDefaultPreference must be low, medium or high in %s, line %d",
+					filename, num_lines);
+				ABORT;
+			}
 			iface->ra_header_info.AdvDefaultPreference = $2;
 		}
 		| T_AdvCurHopLimit NUMBER ';'
 		{
+			if ($2 > MAX_AdvCurHopLimit) {
+				flog(LOG_ERR, "AdvCurHopLimit must be at most %d in %s, line %d",
+					MAX_AdvCurHopLimit, filename, num_lines);
+				ABORT;
+			}
 			iface->ra_header_info.AdvCurHopLimit = $2;
 		}
 		| T_RemoveAdvOnExit SWITCH ';'
@@ -358,6 +375,11 @@ ifaceval	: T_MinRtrAdvInterval NUMBER ';'
 		}
 		| T_HomeAgentPreference NUMBER ';'
 		{
+			if ($2 > UINT16_MAX) {
+				flog(LOG_ERR, "HomeAgentPreference must be at most %u in %s, line %d",
+					UINT16_MAX, filename, num_lines);
+				ABORT;
+			}
 			iface->mipv6.HomeAgentPreference = $2;
 		}
 		| T_HomeAgentLifetime NUMBER ';'
@@ -847,6 +869,11 @@ routeplist	: routeplist routeparms
 
 routeparms	: T_AdvRoutePreference SIGNEDNUMBER ';'
 		{
+			if ($2 < -1 || $2 > 1) {
+				flog(LOG_ERR, "AdvRoutePreference must be low, medium or high in %s, line %d",
+					filename, num_lines);
+				ABORT;
+			}
 			route->AdvRoutePreference = $2;
 		}
 		| T_AdvRouteLifetime number_or_infinity ';'
@@ -964,6 +991,33 @@ dnsslsuffix	: STRING
 				ABORT;
 			}
 
+			/* RFC 1035 section 3.1: labels of at most 63 octets, no empty
+			 * labels, and the wire form (strlen + 2) at most 255 octets.
+			 * Checked here so radvd -c catches it, instead of the option
+			 * being dropped at send time. */
+			if (strlen($1) + 2 > 255) {
+				flog(LOG_ERR, "DNSSL suffix is longer than 253 bytes in %s, line %d",
+					filename, num_lines);
+				ABORT;
+			}
+			{
+				int label_len = 0;
+				for (ch = $1; *ch != '\0'; ch++) {
+					if (*ch == '.') {
+						if (label_len == 0) {
+							flog(LOG_ERR, "DNSSL suffix has an empty label in %s, line %d",
+								filename, num_lines);
+							ABORT;
+						}
+						label_len = 0;
+					} else if (++label_len > 63) {
+						flog(LOG_ERR, "DNSSL suffix has a label longer than 63 bytes in %s, line %d",
+							filename, num_lines);
+						ABORT;
+					}
+				}
+			}
+
 			if (!dnssl) {
 				/* first domain found */
 				dnssl = malloc(sizeof(struct AdvDNSSL));
@@ -1070,9 +1124,11 @@ dnrhead		: T_DNR STRING
 				ABORT;
 			}
 
-			/* Domain name validation from RFC 1035, Section 3.1 */
-			if (len > 255) {
-				flog(LOG_ERR, "DNR ADN total length is greater than 255 bytes "
+			/* Domain name validation from RFC 1035, Section 3.1. The wire
+			 * encoding is len + 2 bytes (one length byte per label plus the
+			 * terminating zero), so the presentation form must be shorter. */
+			if (len + 2 > 255) {
+				flog(LOG_ERR, "DNR ADN total length is greater than 253 bytes "
 					"at %s, line %d", filename, num_lines);
 				ABORT;
 			}
@@ -1086,6 +1142,11 @@ dnrhead		: T_DNR STRING
 					}
 					label_len = 0;
 				} else {
+					if (!isalnum((unsigned char)source[i]) && source[i] != '-' && source[i] != '_') {
+						flog(LOG_ERR, "DNR ADN contains an invalid character "
+							"at %s, line %d", filename, num_lines);
+						ABORT;
+					}
 					if (label_len == 63) {
 						flog(LOG_ERR, "DNR ADN has a label with > 63 bytes "
 							"at %s, line %d", filename, num_lines);
@@ -1307,6 +1368,11 @@ lowpancoplist	: lowpancoplist lowpancoparms
 
 lowpancoparms 	: T_AdvContextLength NUMBER ';'
 		{
+			if ($2 > MAX_PrefixLen) {
+				flog(LOG_ERR, "AdvContextLength must be at most %d in %s, line %d",
+					MAX_PrefixLen, filename, num_lines);
+				ABORT;
+			}
 			lowpanco->ContextLength = $2;
 		}
 		| T_AdvContextCompressionFlag SWITCH ';'
@@ -1315,10 +1381,21 @@ lowpancoparms 	: T_AdvContextLength NUMBER ';'
 		}
 		| T_AdvContextID NUMBER ';'
 		{
+			/* 4-bit field, RFC 6775 section 4.2 */
+			if ($2 > 15) {
+				flog(LOG_ERR, "AdvContextID must be at most 15 in %s, line %d",
+					filename, num_lines);
+				ABORT;
+			}
 			lowpanco->AdvContextID = $2;
 		}
 		| T_AdvLifeTime NUMBER ';'
 		{
+			if ($2 > UINT16_MAX) {
+				flog(LOG_ERR, "AdvLifeTime must be at most %u in %s, line %d",
+					UINT16_MAX, filename, num_lines);
+				ABORT;
+			}
 			lowpanco->AdvLifeTime = $2;
 		}
 		;
@@ -1376,14 +1453,29 @@ abroplist	: abroplist abroparms
 
 abroparms	: T_AdvVersionLow NUMBER ';'
 		{
+			if ($2 > UINT16_MAX) {
+				flog(LOG_ERR, "AdvVersionLow must be at most %u in %s, line %d",
+					UINT16_MAX, filename, num_lines);
+				ABORT;
+			}
 			abro->Version[1] = $2;
 		}
 		| T_AdvVersionHigh NUMBER ';'
 		{
+			if ($2 > UINT16_MAX) {
+				flog(LOG_ERR, "AdvVersionHigh must be at most %u in %s, line %d",
+					UINT16_MAX, filename, num_lines);
+				ABORT;
+			}
 			abro->Version[0] = $2;
 		}
 		| T_AdvValidLifetime NUMBER ';'
 		{
+			if ($2 > UINT16_MAX) {
+				flog(LOG_ERR, "abro AdvValidLifetime must be at most %u in %s, line %d",
+					UINT16_MAX, filename, num_lines);
+				ABORT;
+			}
 			abro->ValidLifeTime = $2;
 		}
 		;

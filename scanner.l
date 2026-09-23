@@ -36,7 +36,7 @@ addr3		({hexdigit}{1,4}":"){7}{hexdigit}{1,4}
 addr		({addr1}|{addr2}|{addr3}|"::")
 naddr		("!"{addr})
 whitespace	([ \t])+
-string		[a-zA-Z0-9`~!@#$%\^&*()_\-+=:\[\]<>,\.?\\]+|L?\"(\\.|[^\\"])*\"
+string		[a-zA-Z0-9`~!@#$%\^&*()_\-+=:\[\]<>,\.?\\]+|\"(\\.|[^\\"\n])*\"
 %%
 
 #.*$			{/* ignore comments */}
