@@ -223,8 +223,9 @@ uint32_t get_interface_linkmtu(const char *iface)
 	if (fp) {
 		int rc = fscanf(fp, "%d", &value);
 		if (rc != 1) {
+			/* e.g. the interface vanished between fopen and now; not fatal */
 			flog(LOG_ERR, "cannot read value from %s: %s", proc_path, strerror(errno));
-			exit(1);
+			value = 1280; /* RFC2460: section 5 */
 		}
 		fclose(fp);
 	} else {
@@ -258,7 +259,7 @@ int check_ip6_iface_forwarding(const char *iface)
 		int rc = fscanf(fp, "%d", &value);
 		if (rc != 1) {
 			flog(LOG_ERR, "cannot read value from %s: %s", path, strerror(errno));
-			exit(1);
+			value = -1;
 		}
 		fclose(fp);
 	} else {
@@ -281,7 +282,7 @@ int check_ip6_forwarding(void)
 		int rc = fscanf(fp, "%d", &value);
 		if (rc != 1) {
 			flog(LOG_ERR, "cannot read value from %s: %s", PROC_SYS_IP6_FORWARDING, strerror(errno));
-			exit(1);
+			value = -1;
 		}
 		fclose(fp);
 	} else {
