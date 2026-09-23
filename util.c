@@ -23,6 +23,10 @@
 struct safe_buffer *new_safe_buffer(void)
 {
 	struct safe_buffer *sb = malloc(sizeof(struct safe_buffer));
+	if (!sb) {
+		flog(LOG_ERR, "malloc failed: %s", strerror(errno));
+		exit(1);
+	}
 	*sb = SAFE_BUFFER_INIT;
 	sb->should_free = 1;
 	return sb;
@@ -65,8 +69,13 @@ void safe_buffer_resize(struct safe_buffer *sb, size_t n)
 			flog(LOG_ERR, "Requested buffer too large for any possible IPv6 ND, even with jumbogram.  Exiting.");
 			exit(1);
 		}
+		unsigned char *buffer = realloc(sb->buffer, n);
+		if (!buffer) {
+			flog(LOG_ERR, "realloc(%zu) failed: %s", n, strerror(errno));
+			exit(1);
+		}
 		sb->allocated = n;
-		sb->buffer = realloc(sb->buffer, sb->allocated);
+		sb->buffer = buffer;
 	}
 }
 
@@ -98,6 +107,10 @@ size_t safe_buffer_append(struct safe_buffer *sb, void const *v, size_t count)
 struct safe_buffer_list *new_safe_buffer_list(void)
 {
 	struct safe_buffer_list *sbl = malloc(sizeof(struct safe_buffer_list));
+	if (!sbl) {
+		flog(LOG_ERR, "malloc failed: %s", strerror(errno));
+		exit(1);
+	}
 	sbl->sb = new_safe_buffer();
 	sbl->next = NULL;
 	return sbl;
