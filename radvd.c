@@ -611,7 +611,8 @@ static pid_t do_daemonize(int log_method, char const *daemon_pid_file_ident)
 
 static int open_pid_file(char const *daemon_pid_file_ident)
 {
-	int pidfd = open(daemon_pid_file_ident, O_SYNC | O_CREAT | O_RDWR, 0644);
+	/* opened as root: never follow a symlink someone planted at the pid file path */
+	int pidfd = open(daemon_pid_file_ident, O_SYNC | O_CREAT | O_RDWR | O_NOFOLLOW, 0644);
 	if (-1 == pidfd) {
 		flog(LOG_ERR, "unable to open pid file, %s: %s", daemon_pid_file_ident, strerror(errno));
 		exit(-1);
